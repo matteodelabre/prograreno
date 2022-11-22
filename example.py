@@ -1,12 +1,12 @@
-from containedprocess import ContainedProcess
+from prograreno.containedprocess import ContainedProcess
 from time import sleep
 from random import randrange
 
 
 child = ContainedProcess(
+    ['/usr/bin/python3', 'double.py'],
     root='rootfs',
-    mount='program',
-    args=['/usr/bin/python3', 'main.py'],
+    mount='child',
     memory_limit=50_000_000,
 )
 
