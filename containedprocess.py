@@ -1,6 +1,3 @@
-import sys
-sys.path = ['/usr/local/lib/python3.10/site-packages'] + sys.path
-
 import python_crun
 from uuid import uuid4
 import json
@@ -9,24 +6,43 @@ from pathlib import Path
 
 
 class ContainedProcess:
-    __slots__ = ['id', 'spec', 'running', 'context', 'stdin', 'stdout']
+    """Run and communicate with a subprocess in a contained environment.
+
+    While the subprocess is running (after calling :meth:`start`), its
+    standard streams can be accessed using the :param:`stdin` and
+    :param:`stdout` attributes.
+
+    :param id: Unique ID for the contained process
+    :param running: True iff the container is running
+    :param stdin: Standard input stream for the subprocess
+    :param stdout: Standard output stream from the subprocess
+    """
+    __slots__ = ['id', '_spec', 'running', '_context', 'stdin', 'stdout']
 
     def __init__(
         self,
+        args: list[str],
         root: str,
         mount: str,
-        args: list[str],
         memory_limit: int = -1,
     ):
+        """Initialize a contained subprocess.
+
+        :param args: List of arguments used to spawn the process
+        :param root: Root directory under which the process will be contained
+        :param mount: Directory to be mounted under `/x` for the subprocess
+        :param memory_limit: Maximum memory usage in bytes, or -1 for
+            unlimited memory
+        """
         program_mount = '/x'
         self.id = str(uuid4())
 
-        self.spec = json.loads(python_crun.spec())
-        self.spec['root'] = {
+        self._spec = json.loads(python_crun.spec())
+        self._spec['root'] = {
             'path': Path(root).absolute().as_posix(),
             'readonly': True,
         }
-        self.spec['process'] = {
+        self._spec['process'] = {
             'terminal': False,
             'cwd': program_mount,
             'args': args,
@@ -43,7 +59,7 @@ class ContainedProcess:
                 },
             ],
         }
-        self.spec['mounts'].append(
+        self._spec['mounts'].append(
             {
                 'destination': program_mount,
                 'source': Path(mount).absolute().as_posix(),
@@ -53,11 +69,12 @@ class ContainedProcess:
         )
 
         self.running = False
-        self.context = None
+        self._context = None
         self.stdin = None
         self.stdout = None
 
     def start(self):
+        """Start the subprocess."""
         if self.running:
             return
 
@@ -72,9 +89,9 @@ class ContainedProcess:
         os.dup2(to_parent_write, 1)
 
         # Fork containerized process
-        c_spec = python_crun.load_from_memory(json.dumps(self.spec))
-        self.context = python_crun.make_context(self.id, detach=True)
-        python_crun.run(self.context, c_spec)
+        c_spec = python_crun.load_from_memory(json.dumps(self._spec))
+        self._context = python_crun.make_context(self.id, detach=True)
+        python_crun.run(self._context, c_spec)
 
         # Back to parent, restore original streams
         os.dup2(old_stdin, 0)
@@ -89,6 +106,7 @@ class ContainedProcess:
         self.running = True
 
     def stop(self):
+        """Stop the subprocess."""
         if not self.running:
             return
 
@@ -98,5 +116,5 @@ class ContainedProcess:
         self.stdout.close()
         self.stdout = None
 
-        python_crun.delete(self.context, self.id, True)
-        self.context = None
+        python_crun.delete(self._context, self.id, True)
+        self._context = None
